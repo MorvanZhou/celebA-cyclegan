@@ -43,10 +43,6 @@ class CelebA:
         self.img_dir = img_dir
         self.batch_size = batch_size
 
-        with open(label_path) as f:
-            lines = f.readlines()
-            all_labels = lines[1].strip().split(" ")
-            self.male_label_id = all_labels.index("Male")
         self.image_size = image_size
         self.crop = [45, 45+image_size[0], 25, 25+image_size[1]]
         self.ds_men = None
@@ -88,7 +84,10 @@ class CelebA:
 
     def to_tf_recoder(self):
         with open(self.label_path) as f:
-            lines = f.readlines()[2:]
+            lines = f.readlines()
+            all_labels = lines[1].strip().split(" ")
+            male_label_id = all_labels.index("Male")
+            lines = lines[2:]
             n = 202599//3
             chunks = [lines[i:i + n] for i in range(0, len(lines), n)]
             for i, chunk in enumerate(chunks):
@@ -105,7 +104,7 @@ class CelebA:
                             except Exception as e:
                                 break
                             label_str = img_labels.replace("  ", " ").split(" ")
-                            is_woman = label_str[self.male_label_id] == "-1"
+                            is_woman = label_str[male_label_id] == "-1"
                             tf_example = self._image_example(img).SerializeToString()
                             if is_woman:
                                 women_writer.write(tf_example)
@@ -142,7 +141,7 @@ if __name__ == "__main__":
     import time
 
     t0 = time.time()
-    # parse_celebA_tfreord()
+    parse_celebA_tfreord()
     # ds = load_celebA_tfrecord(20)
     # t1 = time.time()
     # print("load time", t1-t0)
