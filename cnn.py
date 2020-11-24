@@ -6,24 +6,25 @@ from tensorflow.keras.layers import *
 class InstanceNormalization_(keras.layers.Layer):
     """Batch Instance Normalization Layer (https://arxiv.org/abs/1805.07925)."""
 
-    def __init__(self, epsilon=1e-5):
+    def __init__(self, trainable=None, epsilon=1e-5):
         super().__init__()
         self.epsilon = epsilon
+        self.trainable = trainable
 
     def build(self, input_shape):
         self.gamma = self.add_weight(
             name='gamma',
             shape=input_shape[-1:],
             initializer='ones',
-            trainable=True)
+            trainable=self.trainable)
 
         self.beta = self.add_weight(
             name='beta',
             shape=input_shape[-1:],
             initializer='zeros',
-            trainable=True)
+            trainable=self.trainable)
 
-    def call(self, x):
+    def call(self, x, trainable=None):
         ins_mean, ins_sigma = tf.nn.moments(x, axes=[1, 2], keepdims=True)
         x_ins = (x - ins_mean) * (tf.math.rsqrt(ins_sigma + self.epsilon))
 
@@ -98,9 +99,9 @@ class ResBottleneck(keras.layers.Layer):
 
 
 def unet(input_shape=(128, 128, 3), name="unet"):
-    def en_block(inputs, filters=64):
-        _o = Conv2D(filters, 3, 2, "same")(inputs)
-        _o = InstanceNormalization()(_o)
+    def en_block(inputs, filters=64, trainable=True):
+        _o = Conv2D(filters, 3, 2, "same", trainable=trainable)(inputs)
+        _o = InstanceNormalization(trainable=trainable)(_o)
         _o = ReLU()(_o)
         return _o
 
@@ -111,18 +112,17 @@ def unet(input_shape=(128, 128, 3), name="unet"):
         _u = ReLU()(_u)
         return _u
 
-    def c7s164(inputs):
+    def c7s164(inputs, trainable=True):
         # e = GaussianNoise(0.02)(inputs)
-        e = Conv2D(64, 7, 2, "same")(inputs)
-        e = InstanceNormalization()(e)
+        e = Conv2D(64, 7, 2, "same", trainable=trainable)(inputs)
+        e = InstanceNormalization(trainable=trainable)(e)
         e = ReLU()(e)
         return e
 
     i = keras.Input(shape=input_shape, dtype=tf.float32)
-    encoder = [c7s164(i)]   # 64
-    encoder.append(en_block(encoder[-1], 128))    # 32
-    # encoder.append(en_block(encoder[-1], 256))  # 32
-    # l3 = en_block(l2, 128)      # 16
+    encoder = [c7s164(i, trainable=False)]   # 64
+    encoder.append(en_block(encoder[-1], 128, trainable=False))    # 32
+    encoder.append(en_block(encoder[-1], 256, trainable=False))  # 16
 
     m = ResBlock(filters=128, activation=tf.nn.relu, bottlenecks=1)(encoder[-1])  # 16
     for _ in range(3):
@@ -130,7 +130,7 @@ def unet(input_shape=(128, 128, 3), name="unet"):
 
     decoder = [de_block(m, encoder.pop(), 128)]
     decoder.append(de_block(decoder[-1], encoder.pop(), 64))
-    # decoder.append(de_block(decoder[-1], encoder.pop(), 64))
+    decoder.append(de_block(decoder[-1], encoder.pop(), 64))
 
     o = Conv2D(32, 4, 1, "same")(decoder[-1])
     o = InstanceNormalization()(o)
