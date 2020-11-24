@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow import keras
 from cnn import unet, dc_d
+import random
 
 
 class CycleGAN(keras.Model):
@@ -15,11 +16,14 @@ class CycleGAN(keras.Model):
         self.f = self._get_generator("f")       # woman to man
         self.dg, self.patch_shape = self._get_discriminator("dg")
         self.df, _ = self._get_discriminator("df")
+        self.g_buffer = []
+        self.f_buffer = []
+        self.buffer_len = 10
 
         self.opt = keras.optimizers.Adam(lr, beta_1=beta1, beta_2=beta2)
-        self.loss_bool = keras.losses.BinaryCrossentropy(from_logits=True)
         self.loss_img = keras.losses.MeanAbsoluteError()
-        self.loss_ls = keras.losses.MeanSquaredError()
+        self.d_loss_fun = keras.losses.MeanSquaredError() if self.ls_loss \
+            else keras.losses.BinaryCrossentropy(from_logits=True)
 
         self.summary_writer = summary_writer
         self._train_step = 0
@@ -35,9 +39,8 @@ class CycleGAN(keras.Model):
         return model
 
     def train_d(self, fimg, gimg, label):
-        loss_fun = self.loss_ls if self.ls_loss else self.loss_bool
         with tf.GradientTape() as tape:
-            loss = (loss_fun(label, self.dg(gimg)) + loss_fun(label, self.df(fimg))) / 4
+            loss = (self.d_loss_fun(label, self.dg(gimg)) + self.d_loss_fun(label, self.df(fimg))) / 4
         vars = self.df.trainable_variables + self.dg.trainable_variables
         grads = tape.gradient(loss, vars)
         self.opt.apply_gradients(zip(grads, vars))
@@ -60,14 +63,12 @@ class CycleGAN(keras.Model):
         return 0.5 * self.lambda_ * (loss1 + loss2) / 2
 
     def train_g(self, img1, img2):
-        d_label = tf.ones((len(img1), *self.patch_shape), tf.float32)
-        d_loss_fun = self.loss_ls if self.ls_loss else self.loss_bool
         with tf.GradientTape(persistent=True) as tape:
             cycle_loss, gimg1, fimg2 = self.cycle(img1, img2)
             if self.use_identity:
                 cycle_loss += self.identity(img1, img2)
-            loss_g = d_loss_fun(d_label, self.dg(gimg1)) + cycle_loss
-            loss_f = d_loss_fun(d_label, self.df(fimg2)) + cycle_loss
+            loss_g = self.d_loss_fun(1, self.dg(gimg1)) + cycle_loss
+            loss_f = self.d_loss_fun(1, self.df(fimg2)) + cycle_loss
         grads_g = tape.gradient(loss_g, self.g.trainable_variables)
         grads_f = tape.gradient(loss_f, self.f.trainable_variables)
         self.opt.apply_gradients(zip(grads_g, self.g.trainable_variables))
@@ -99,6 +100,17 @@ class CycleGAN(keras.Model):
             d_label = tf.concat(
                 (tf.ones((half, *self.patch_shape), tf.float32),
                  tf.zeros((half, *self.patch_shape), tf.float32)), axis=0)
+
+        # reduce model oscillation
+        self.g_buffer.append(gimg1)
+        self.f_buffer.append(fimg2)
+        if len(self.g_buffer) > self.buffer_len:
+            self.g_buffer.pop(0)
+        if len(self.f_buffer) > self.buffer_len:
+            self.f_buffer.pop(0)
+        idx = random.randint(0, len(self.f_buffer)-1)
+        gimg1, fimg2 = self.g_buffer[idx], self.f_buffer[idx]
+
         real_fake_fimg = tf.concat((img1[:half], fimg2), axis=0)
         real_fake_gimg = tf.concat((img2[:half], gimg1), axis=0)
         d_loss = self.train_d(real_fake_fimg, real_fake_gimg, d_label)
