@@ -7,7 +7,6 @@ import tensorflow as tf
 
 LABEL_PATH = "data/list_attr_celeba.txt"
 IMAGE_DIR = "data/img_align_celeba"
-IMG_SHAPE = (128, 128, 3)
 
 def _bytes_feature(value):
     """Returns a bytes_list from a string / byte."""
@@ -26,25 +25,19 @@ def _img_array_feature(value):
 
 
 def _bytes_img_process(img_str):
-    crop = [45, 25, 128, 128]
+    crop = [20, 0, 178, 178]
     imgs = tf.io.decode_and_crop_jpeg(img_str, crop)
-    return imgs
-
-
-def _int_img_process(img_int):
-    imgs = tf.reshape(img_int, IMG_SHAPE)
+    imgs = tf.image.resize(imgs, (128, 128))
     return imgs
 
 
 class CelebA:
-    def __init__(self, batch_size, image_size=(128, 128, 3),
+    def __init__(self, batch_size,
                  label_path="data/list_attr_celeba.txt", img_dir="data/img_align_celeba"):
         self.label_path = label_path
         self.img_dir = img_dir
         self.batch_size = batch_size
 
-        self.image_size = image_size
-        self.crop = [45, 45+image_size[0], 25, 25+image_size[1]]
         self.ds_men = None
         self.ds_women = None
 
@@ -127,12 +120,12 @@ def show_sample():
 
 
 def parse_celebA_tfreord():
-    d = CelebA(1, IMG_SHAPE, LABEL_PATH, IMAGE_DIR)
+    d = CelebA(1, LABEL_PATH, IMAGE_DIR)
     d.to_tf_recoder()
 
 
 def load_celebA_tfrecord(batch_size):
-    d = CelebA(batch_size, IMG_SHAPE, LABEL_PATH, IMAGE_DIR)
+    d = CelebA(batch_size, LABEL_PATH, IMAGE_DIR)
     d.load_tf_recoder()
     return d
 
