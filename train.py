@@ -9,7 +9,7 @@ import datetime
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-b", "--batch_size", dest="batch_size", default=1, type=int)
+parser.add_argument("-b", "--batch_size", dest="batch_size", default=10, type=int)
 parser.add_argument("-e", "--epoch", dest="epoch", default=101, type=int)
 parser.add_argument("--soft_gpu", dest="soft_gpu", action="store_true", default=False)
 parser.add_argument("--identity", dest="identity", action="store_true", default=False)
@@ -41,7 +41,7 @@ def train(gan, d):
                 logger.info("ep={:03d} t={:04d} | time={:05.1f} | g_loss={:.2f} | d_loss={:.2f}".format(
                     ep, t, t1-t0, g_loss.numpy(), d_loss.numpy()))
                 t0 = t1
-        if (ep+1) % 5 == 0:
+        if ep % 5 == 0:
             gan.save_weights(checkpoint_path.format(epoch=ep))
     gan.save_weights(checkpoint_path.format(epoch=args.epoch))
 

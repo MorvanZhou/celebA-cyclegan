@@ -3,6 +3,9 @@ from tensorflow import keras
 from cnn import unet, dc_d
 import random
 
+g_buffer = []
+f_buffer = []
+
 
 class CycleGAN(keras.Model):
     def __init__(self, img_shape,
@@ -16,9 +19,8 @@ class CycleGAN(keras.Model):
         self.f = self._get_generator("f")       # woman to man
         self.dg, self.patch_shape = self._get_discriminator("dg")
         self.df, _ = self._get_discriminator("df")
-        self.g_buffer = []
-        self.f_buffer = []
-        self.buffer_len = 10
+
+        self.buffer_len = 20
 
         self.opt = keras.optimizers.Adam(lr, beta_1=beta1, beta_2=beta2)
         self.loss_img = keras.losses.MeanAbsoluteError()
@@ -30,6 +32,9 @@ class CycleGAN(keras.Model):
 
     def _get_discriminator(self, name):
         model = dc_d(self.img_shape, name=name)  # [n, 8, 8, 1]
+        if not self.ls_loss:
+            model.add(keras.layers.Flatten())
+            model.add(keras.layers.Dense(1))
         model.summary()
         return model, model.layers[-1].output_shape[1:]
 
@@ -63,12 +68,16 @@ class CycleGAN(keras.Model):
         return 0.5 * self.lambda_ * (loss1 + loss2) / 2
 
     def train_g(self, img1, img2):
+        if self.ls_loss:
+            d_label = tf.ones((len(img1), *self.patch_shape), tf.float32)
+        else:
+            d_label = tf.ones((len(img1), 1), tf.float32)
         with tf.GradientTape(persistent=True) as tape:
             cycle_loss, gimg1, fimg2 = self.cycle(img1, img2)
             if self.use_identity:
                 cycle_loss += self.identity(img1, img2)
-            loss_g = self.d_loss_fun(1, self.dg(gimg1)) + cycle_loss
-            loss_f = self.d_loss_fun(1, self.df(fimg2)) + cycle_loss
+            loss_g = self.d_loss_fun(d_label, self.dg(gimg1)) + cycle_loss
+            loss_f = self.d_loss_fun(d_label, self.df(fimg2)) + cycle_loss
         grads_g = tape.gradient(loss_g, self.g.trainable_variables)
         grads_f = tape.gradient(loss_f, self.f.trainable_variables)
         self.opt.apply_gradients(zip(grads_g, self.g.trainable_variables))
@@ -102,17 +111,17 @@ class CycleGAN(keras.Model):
                  tf.zeros((half, *self.patch_shape), tf.float32)), axis=0)
 
         # reduce model oscillation
-        self.g_buffer.append(gimg1)
-        self.f_buffer.append(fimg2)
-        if len(self.g_buffer) > self.buffer_len:
-            self.g_buffer.pop(0)
-        if len(self.f_buffer) > self.buffer_len:
-            self.f_buffer.pop(0)
-        idx = random.randint(0, len(self.f_buffer)-1)
-        gimg1, fimg2 = self.g_buffer[idx], self.f_buffer[idx]
+        g_buffer.append(gimg1.numpy())
+        f_buffer.append(fimg2.numpy())
+        idx = random.randint(0, len(f_buffer)-1)
+        gimg1_, fimg2_ = tf.convert_to_tensor(g_buffer[idx]), tf.convert_to_tensor(f_buffer[idx])
+        if len(g_buffer) > self.buffer_len:
+            g_buffer.pop(0)
+        if len(f_buffer) > self.buffer_len:
+            f_buffer.pop(0)
 
-        real_fake_fimg = tf.concat((img1[:half], fimg2), axis=0)
-        real_fake_gimg = tf.concat((img2[:half], gimg1), axis=0)
+        real_fake_fimg = tf.concat((img1[:half], fimg2_), axis=0)
+        real_fake_gimg = tf.concat((img2[:half], gimg1_), axis=0)
         d_loss = self.train_d(real_fake_fimg, real_fake_gimg, d_label)
         self._train_step += 1
         return g_loss, d_loss

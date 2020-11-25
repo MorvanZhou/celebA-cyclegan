@@ -49,13 +49,13 @@ def dc_d(input_shape, name):
     model = keras.Sequential([Input(input_shape)], name=name)
     # [n, 128, 128, 3]
     # model.add(GaussianNoise(0.02))
-    add_block(64, ins_norm=False)
+    add_block(32, ins_norm=False)
     # 64
-    add_block(128)
+    add_block(64)
     # 32
-    add_block(256)
+    add_block(128)
     # 16
-    add_block(512)
+    add_block(256)
     # 8
     # add_block(512)
     # 4
@@ -121,19 +121,19 @@ def unet(input_shape=(128, 128, 3), name="unet"):
 
     i = keras.Input(shape=input_shape, dtype=tf.float32)
     # attempt: encoder to extract image random encoding. trainable = False
-    encoder = [c7s164(i, trainable=False)]   # 64
-    encoder.append(en_block(encoder[-1], 128, trainable=False))    # 32
-    encoder.append(en_block(encoder[-1], 256, trainable=False))  # 16
+    e1 = c7s164(i, trainable=True)   # 64
+    e2 = en_block(e1, 64, trainable=True)    # 32
+    e3 = en_block(e2, 128, trainable=True)  # 16
 
-    m = ResBlock(filters=256, activation=tf.nn.relu, bottlenecks=1)(encoder[-1])  # 16
-    for _ in range(3):
-        m = ResBlock(256, tf.nn.relu, 1)(m)  # 16
+    m = ResBlock(filters=128, activation=tf.nn.relu, bottlenecks=1)(e3)  # 16
+    for _ in range(2):
+        m = ResBlock(128, tf.nn.relu, 1)(m)  # 16
 
-    decoder = [de_block(m, encoder.pop(), 256)]
-    decoder.append(de_block(decoder[-1], encoder.pop(), 128))
-    decoder.append(de_block(decoder[-1], encoder.pop(), 64))
+    d3 = de_block(m, e3, 128)
+    d2 = de_block(d3, e2, 64)
+    d1 = de_block(d2, e1, 64)
 
-    o = Conv2D(32, 4, 1, "same")(decoder[-1])
+    o = Conv2D(32, 4, 1, "same")(d1)
     o = InstanceNormalization()(o)
     o = ReLU()(o)
     o = Conv2D(input_shape[-1], 7, 1, "same", activation=keras.activations.tanh)(o)
