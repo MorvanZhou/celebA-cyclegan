@@ -10,24 +10,24 @@ class InstanceNormalization_(keras.layers.Layer):
         super().__init__()
         self.epsilon = epsilon
         self.trainable = trainable
+        self.gamma, self.beta = None, None
 
     def build(self, input_shape):
         self.gamma = self.add_weight(
             name='gamma',
             shape=input_shape[-1:],
-            initializer='ones',
+            initializer=keras.initializers.RandomNormal(1, 0.02),
             trainable=self.trainable)
 
         self.beta = self.add_weight(
             name='beta',
             shape=input_shape[-1:],
-            initializer='zeros',
+            initializer=keras.initializers.RandomNormal(0, 0.02),
             trainable=self.trainable)
 
     def call(self, x, trainable=None):
         ins_mean, ins_sigma = tf.nn.moments(x, axes=[1, 2], keepdims=True)
         x_ins = (x - ins_mean) * (tf.math.rsqrt(ins_sigma + self.epsilon))
-
         return x_ins * self.gamma + self.beta
 
 try:
@@ -41,7 +41,7 @@ W_INIT = keras.initializers.RandomNormal(0, 0.02)
 
 def dc_d(input_shape, name):
     def add_block(filters, ins_norm=True):
-        model.add(Conv2D(filters, 4, strides=2, padding='same', kernel_initializer=W_INIT))
+        model.add(Conv2D(filters, 3, 2, padding='same', kernel_initializer=W_INIT))
         if ins_norm:
             model.add(InstanceNormalization())
         model.add(LeakyReLU(alpha=0.2))
@@ -49,93 +49,86 @@ def dc_d(input_shape, name):
     model = keras.Sequential([Input(input_shape)], name=name)
     # [n, 128, 128, 3]
     # model.add(GaussianNoise(0.02))
-    add_block(32, ins_norm=False)
+    add_block(64, ins_norm=False)
     # 64
-    add_block(64)
-    # 32
     add_block(128)
-    # 16
+    # 32
     add_block(256)
+    # 16
+    add_block(512)
     # 8
     # add_block(512)
     # 4
-    model.add(Conv2D(1, 4, 1, "same"))
+    model.add(Conv2D(1, 3, 1, "valid"))
     return model
 
 
 class ResBlock(keras.layers.Layer):
-    def __init__(self, filters, activation=None, bottlenecks=2):
+    def __init__(self, filters, bottlenecks=2):
         super().__init__()
-        self.activation = activation
-        self.bn = keras.Sequential(
-            [ResBottleneck(filters)]
+        assert bottlenecks > 0
+        self.bs = keras.Sequential(
+            [ResBottleneck(filters) for _ in range(bottlenecks)]
         )
-        if bottlenecks > 1:
-            self.bn.add(ReLU())
-            for _ in range(1, bottlenecks):
-                self.bn.add(ResBottleneck(filters))
 
     def call(self, x, training=None):
-        o = self.bn(x, training=training)
-        if self.activation is not None:
-            o = self.activation(o)
+        o = self.bs(x, training=training)
         return o
 
 
 class ResBottleneck(keras.layers.Layer):
     def __init__(self, filters):
         super().__init__()
-        c = filters // 2
-        self.b = keras.Sequential([Conv2D(c, 1, strides=1, padding="same", kernel_initializer=W_INIT)])
-        self.b.add(InstanceNormalization())
-        self.b.add(ReLU())
-        self.b.add(Conv2D(filters, 4, strides=1, padding="same", kernel_initializer=W_INIT))
-        self.ins_norm = InstanceNormalization()
+        c = filters // 3
+        self.b = keras.Sequential([
+            Conv2D(c, 3, 1, padding="same", kernel_initializer=W_INIT),
+            InstanceNormalization(),
+            LeakyReLU(0.2),
+            Conv2D(filters, 3, 1, padding="same", kernel_initializer=W_INIT),
+            InstanceNormalization(),
+        ])
 
     def call(self, x, training=None):
-        b = self.b(x, training=training)
-        x = self.ins_norm(b + x)
-        return x
+        o = self.b(x, training=training) + x
+        o = tf.nn.relu(o)
+        return o
 
 
 def unet(input_shape=(128, 128, 3), name="unet"):
-    def en_block(inputs, filters=64, trainable=True):
-        _o = Conv2D(filters, 3, 2, "same", trainable=trainable)(inputs)
-        _o = InstanceNormalization(trainable=trainable)(_o)
-        _o = ReLU()(_o)
-        return _o
+    def en_block(inputs, filters, kernels=3, trainable=True):
+        _e = Conv2D(filters, kernels, 2, "same", trainable=trainable)(inputs)
+        _e = InstanceNormalization(trainable=trainable)(_e)
+        _e = LeakyReLU(0.2)(_e)
+        return _e
 
     def de_block(inputs, encoding, filters=64):
         _u = tf.concat((inputs, encoding), axis=3)
-        _u = Conv2DTranspose(filters, 3, 2, "same")(_u)
+        _u = UpSampling2D((2, 2), interpolation="bilinear")(_u)
+        _u = Conv2D(filters, 3, 1, "same")(_u)
         _u = InstanceNormalization()(_u)
-        _u = ReLU()(_u)
+        _u = LeakyReLU(0.2)(_u)
         return _u
 
-    def c7s164(inputs, trainable=True):
-        # e = GaussianNoise(0.02)(inputs)
-        e = Conv2D(64, 7, 2, "same", trainable=trainable)(inputs)
-        e = InstanceNormalization(trainable=trainable)(e)
-        e = ReLU()(e)
-        return e
-
     i = keras.Input(shape=input_shape, dtype=tf.float32)
-    # attempt: encoder to extract image random encoding. trainable = False
-    e1 = c7s164(i, trainable=True)   # 64
-    e2 = en_block(e1, 64, trainable=True)    # 32
-    e3 = en_block(e2, 128, trainable=True)  # 16
+    train_encoder = True
+    # attempt: encoder to extract image random encoding with some its distribution. trainable = False
+    i_ = Conv2D(64, 7, 1, "same")(i)
+    e1 = en_block(i_, 128, 7, trainable=train_encoder)   # 64
+    e2 = en_block(e1, 128, trainable=train_encoder)    # 32
 
-    m = ResBlock(filters=128, activation=tf.nn.relu, bottlenecks=1)(e3)  # 16
-    for _ in range(2):
-        m = ResBlock(128, tf.nn.relu, 1)(m)  # 16
+    m = ResBlock(filters=128, bottlenecks=2)(e2)
+    for _ in range(3):
+        m = ResBlock(128, 2)(m)
 
-    d3 = de_block(m, e3, 128)
-    d2 = de_block(d3, e2, 64)
-    d1 = de_block(d2, e1, 64)
+    d2 = de_block(m, e2, 128)
+    d1 = de_block(d2, e1, 128)
 
-    o = Conv2D(32, 4, 1, "same")(d1)
+    o = Conv2D(64, 7, 1, "same")(d1)
     o = InstanceNormalization()(o)
-    o = ReLU()(o)
+    o = LeakyReLU(0.2)(o)
+    # o = Conv2D(64, 5, 1, "same")(o)
+    # o = InstanceNormalization()(o)
+    # o = LeakyReLU(0.2)(o)
     o = Conv2D(input_shape[-1], 7, 1, "same", activation=keras.activations.tanh)(o)
     unet = keras.Model(i, o, name=name)
     return unet

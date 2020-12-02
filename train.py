@@ -27,36 +27,38 @@ date_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 
 def train(gan, d):
-    _dir = "{}/{}/{}/model".format(args.output_dir, model_name, date_str)
-    checkpoint_path = _dir + "/cp-{epoch:04d}.ckpt"
+    _dir = "{}/{}/model".format(args.output_dir, date_str)
+    checkpoint_path = _dir + "/cp-{epoch:04d}-{step:05d}.ckpt"
     os.makedirs(_dir, exist_ok=True)
     t0 = time.time()
+    test_men = tf.concat([next(iter(d.ds_men)) for _ in range(max(1, 21 // args.batch_size))], axis=0)
+    test_women = tf.concat([next(iter(d.ds_women)) for _ in range(max(1, 21 // args.batch_size))], axis=0)
     for ep in range(args.epoch):
         for t, img_men in enumerate(d.ds_men):
             img_women = next(iter(d.ds_women))
-            g_loss, d_loss = gan.step(img_men, img_women)
+            g_loss, d_loss, cyc_loss = gan.step(img_men, img_women)
             if t % 500 == 0:
-                utils.save_gan(gan, "%s/ep%03dt%06d" % (date_str, ep, t), args.output_dir, img_women, img_men)
+                utils.save_gan(gan, "%s/ep%03dt%06d" % (date_str, ep, t), args.output_dir, test_women, test_men)
                 t1 = time.time()
-                logger.info("ep={:03d} t={:04d} | time={:05.1f} | g_loss={:.2f} | d_loss={:.2f}".format(
-                    ep, t, t1-t0, g_loss.numpy(), d_loss.numpy()))
+                logger.info("ep={:03d} t={:04d} | time={:05.1f} | g_loss={:.2f} | d_loss={:.2f} | cyc_loss={:.2f}".format(
+                    ep, t, t1-t0, g_loss.numpy(), d_loss.numpy(), cyc_loss.numpy()))
                 t0 = t1
-        if ep % 5 == 0:
-            gan.save_weights(checkpoint_path.format(epoch=ep))
+            if t % 2000 == 0:
+                gan.save_weights(checkpoint_path.format(epoch=ep, step=t))
     gan.save_weights(checkpoint_path.format(epoch=args.epoch))
 
 
-def init_logger(model_name, date_str, m):
-    logger = utils.get_logger(model_name, date_str)
+def init_logger(date_str, m):
+    logger = utils.get_logger(date_str)
     logger.info(str(args))
-    logger.info("model parameters: g={}, f={}, dg={}, df={}".format(
-        m.g.count_params(), m.f.count_params(), m.dg.count_params(), m.df.count_params()))
+    logger.info("model parameters: g12={}, g21={}, d1={}, d2={}".format(
+        m.g12.count_params(), m.g21.count_params(), m.d1.count_params(), m.d2.count_params()))
 
     try:
-        tf.keras.utils.plot_model(m.g, show_shapes=True, expand_nested=True, dpi=150,
-                                  to_file="{}/{}/{}/net_g.png".format(args.output_dir, model_name, date_str))
-        tf.keras.utils.plot_model(m.dg, show_shapes=True, expand_nested=True, dpi=150,
-                                  to_file="{}/{}/{}/net_d.png".format(args.output_dir, model_name, date_str))
+        tf.keras.utils.plot_model(m.g12, show_shapes=True, expand_nested=True, dpi=150,
+                                  to_file="{}/{}/net_g.png".format(args.output_dir, date_str))
+        tf.keras.utils.plot_model(m.d1, show_shapes=True, expand_nested=True, dpi=150,
+                                  to_file="{}/{}/net_d.png".format(args.output_dir, date_str))
     except Exception as e:
         print(e)
     return logger
@@ -65,12 +67,11 @@ def init_logger(model_name, date_str, m):
 if __name__ == "__main__":
     utils.set_soft_gpu(args.soft_gpu)
 
-    model_name = "cyclegan"
-    summary_writer = tf.summary.create_file_writer('{}/{}/{}'.format(args.output_dir, model_name, date_str))
+    summary_writer = tf.summary.create_file_writer('{}/{}'.format(args.output_dir, date_str))
     d = load_celebA_tfrecord(args.batch_size)
     m = CycleGAN(img_shape=(128, 128, 3), lambda_=args.lambda_, summary_writer=summary_writer,
                  lr=args.lr, beta1=args.beta1, beta2=args.beta2, use_identity=args.identity, ls_loss=args.lsgan)
-    logger = init_logger(model_name, date_str, m)
+    logger = init_logger(date_str, m)
     train(m, d)
 
 

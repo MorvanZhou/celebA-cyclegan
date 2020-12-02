@@ -18,16 +18,15 @@ def set_soft_gpu(soft_gpu):
 
 
 def save_gan(model, ep, out_dir, img_women, img_men):
-    model_name = model.__class__.__name__.lower()
-    img_women = img_women[:10]
-    img_men = img_men[:10]
-    img_women_ = model.g.call(img_men, training=False)  # man to woman
-    img_men_ = model.f.call(img_women, training=False)  # woman to man
+    img_women = img_women
+    img_men = img_men
+    img_women_ = model.g12.call(img_men, training=False)  # man to woman
+    img_men_ = model.g21.call(img_women, training=False)  # woman to man
 
     convt = lambda x: (x.numpy() + 1) / 2
     imgs = [convt(img_women), convt(img_men_), convt(img_men), convt(img_women_)]
     plt.clf()
-    nc, nr = 10, 4
+    nc, nr = len(img_women), 4
     plt.figure(0, (nc*2, nr*2))
     for c in range(nc):
         for r in range(nr):
@@ -37,16 +36,16 @@ def save_gan(model, ep, out_dir, img_women, img_men):
             plt.axis("off")
 
     plt.tight_layout()
-    path = "{}/{}/{}.png".format(out_dir, model_name, ep)
+    path = "{}/{}.png".format(out_dir, ep)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     plt.savefig(path)
 
 
-def get_logger(model_name, date_str):
+def get_logger(date_str):
     log_fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
-    log_path = "visual/{}/{}/train.log".format(model_name, date_str)
+    log_path = "visual/{}/train.log".format(date_str)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     fh = logging.FileHandler(log_path)
     fh.setFormatter(log_fmt)
