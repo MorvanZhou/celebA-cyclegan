@@ -1,0 +1,5 @@
+graphviz==0.14.1
+matplotlib==3.3.2
+numpy==1.18.5
+Pillow==7.2.0
+tensorflow==2.3.1
