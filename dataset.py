@@ -5,8 +5,6 @@ import tensorflow as tf
 
 # data is downloaded from http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html
 
-LABEL_PATH = "data/list_attr_celeba.txt"
-IMAGE_DIR = "data/img_align_celeba"
 
 def _bytes_feature(value):
     """Returns a bytes_list from a string / byte."""
@@ -32,10 +30,10 @@ def _bytes_img_process(img_str):
 
 
 class CelebA:
-    def __init__(self, batch_size,
-                 label_path="data/list_attr_celeba.txt", img_dir="data/img_align_celeba"):
-        self.label_path = label_path
-        self.img_dir = img_dir
+    def __init__(self, batch_size, data_dir="data",):
+        self.label_path = os.path.join(data_dir, "list_attr_celeba.txt")
+        self.img_dir = os.path.join(data_dir, "img_align_celeba")
+        self.tfrecord_dir = os.path.join(data_dir, "tfrecord-celebA-cyclegan")
         self.batch_size = batch_size
 
         self.ds_men = None
@@ -55,25 +53,21 @@ class CelebA:
         return tf.cast(imgs, tf.float32) / 255 * 2 - 1
 
     def load_tf_recoder(self):
-        raw_img_ds = []
-        for m in ["men", "women"]:
-            dir_ = os.path.join(os.path.dirname(self.img_dir), "tfrecord", m)
+        ds = []
+        name = ["men", "women"]
+        for i in range(2):
+            dir_ = os.path.join(self.tfrecord_dir, name[i])
             paths = [os.path.join(dir_, p) for p in os.listdir(dir_)]
-            raw_img_ds.append(tf.data.TFRecordDataset(paths, num_parallel_reads=min(4, len(paths))))
-        self.ds_men = raw_img_ds[0].shuffle(1024).map(
-            self._parse_img, num_parallel_calls=tf.data.experimental.AUTOTUNE,
-        ).batch(
-            self.batch_size, drop_remainder=True
-        ).prefetch(
-            tf.data.experimental.AUTOTUNE
-        )
-        self.ds_women = raw_img_ds[1].shuffle(1024).map(
-            self._parse_img, num_parallel_calls=tf.data.experimental.AUTOTUNE,
-        ).batch(
-            self.batch_size, drop_remainder=True
-        ).prefetch(
-            tf.data.experimental.AUTOTUNE
-        )
+            raw_img_ds = tf.data.TFRecordDataset(paths, num_parallel_reads=min(4, len(paths)))
+            ds.append(raw_img_ds.shuffle(1024).map(
+                    self._parse_img, num_parallel_calls=tf.data.experimental.AUTOTUNE,
+                ).batch(
+                    self.batch_size, drop_remainder=True
+                ).prefetch(
+                    tf.data.experimental.AUTOTUNE
+                ))
+        self.ds_men = ds[0]
+        self.ds_women = ds[1]
 
     def to_tf_recoder(self):
         with open(self.label_path) as f:
@@ -84,8 +78,8 @@ class CelebA:
             n = 202599//3
             chunks = [lines[i:i + n] for i in range(0, len(lines), n)]
             for i, chunk in enumerate(chunks):
-                men_path = os.path.dirname(self.img_dir) + "/tfrecord/men/{}.tfrecord".format(i)
-                women_path = os.path.dirname(self.img_dir) + "/tfrecord/women/{}.tfrecord".format(i)
+                men_path = os.path.join(self.tfrecord_dir, "men/{}.tfrecord".format(i))
+                women_path = os.path.join(self.tfrecord_dir, "women/{}.tfrecord".format(i))
                 os.makedirs(os.path.dirname(men_path), exist_ok=True)
                 os.makedirs(os.path.dirname(women_path), exist_ok=True)
                 with tf.io.TFRecordWriter(men_path) as men_writer:
@@ -105,8 +99,8 @@ class CelebA:
                                 men_writer.write(tf_example)
 
 
-def show_sample():
-    d = load_celebA_tfrecord(5)
+def show_sample(data_dir):
+    d = load_celebA_tfrecord(5, data_dir)
     images = tf.concat([next(iter(d.ds_women)), next(iter(d.ds_men))], axis=0)
     images = (images.numpy() + 1) / 2
     for i in range(2):
@@ -119,23 +113,31 @@ def show_sample():
     plt.show()
 
 
-def parse_celebA_tfreord():
-    d = CelebA(1, LABEL_PATH, IMAGE_DIR)
+def parse_celebA_tfreord(data_dir):
+    d = CelebA(1, data_dir)
     d.to_tf_recoder()
 
 
-def load_celebA_tfrecord(batch_size):
-    d = CelebA(batch_size, LABEL_PATH, IMAGE_DIR)
+def load_celebA_tfrecord(batch_size, data_dir):
+    d = CelebA(batch_size, data_dir)
     d.load_tf_recoder()
     return d
 
 
 if __name__ == "__main__":
     import time
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", dest="data_dir", default="data", type=str)
+
+    args = parser.parse_args()
+
+    DATA_DIR = args.data_dir
 
     t0 = time.time()
-    parse_celebA_tfreord()
-    # ds = load_celebA_tfrecord(20)
+    parse_celebA_tfreord(DATA_DIR)
+    # ds = load_celebA_tfrecord(20, DATA_DIR)
     # t1 = time.time()
     # print("load time", t1-t0)
     # count = 0
@@ -150,4 +152,4 @@ if __name__ == "__main__":
     #         break
     #
     # print("runtime", time.time()-t1)
-    show_sample()
+    show_sample(DATA_DIR)

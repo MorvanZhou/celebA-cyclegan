@@ -1,7 +1,6 @@
 import tensorflow as tf
 import os
 import matplotlib.pyplot as plt
-import numpy as np
 import logging
 import sys
 
@@ -17,13 +16,13 @@ def set_soft_gpu(soft_gpu):
             print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
 
 
-def save_gan(model, ep, out_dir, img_women, img_men):
+def save_gan(model, img_name, img_women, img_men):
     img_women = img_women
     img_men = img_men
-    img_women_ = model.g12.call(img_men, training=False)  # man to woman
-    img_men_ = model.g21.call(img_women, training=False)  # woman to man
+    img_women_ = model.g12.predict(img_men)  # man to woman
+    img_men_ = model.g21.predict(img_women)  # woman to man
 
-    convt = lambda x: (x.numpy() + 1) / 2
+    convt = lambda x: (x + 1) / 2
     imgs = [convt(img_women), convt(img_men_), convt(img_men), convt(img_women_)]
     plt.clf()
     nc, nr = len(img_women), 4
@@ -36,7 +35,7 @@ def save_gan(model, ep, out_dir, img_women, img_men):
             plt.axis("off")
 
     plt.tight_layout()
-    path = "{}/{}.png".format(out_dir, ep)
+    path = "visual/{}.png".format(img_name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     plt.savefig(path)
 

@@ -3,7 +3,7 @@ import tensorflow as tf
 from tensorflow.keras.layers import *
 
 
-class InstanceNormalization_(keras.layers.Layer):
+class InstanceNormalization(keras.layers.Layer):
     """Batch Instance Normalization Layer (https://arxiv.org/abs/1805.07925)."""
 
     def __init__(self, trainable=None, epsilon=1e-5):
@@ -15,13 +15,13 @@ class InstanceNormalization_(keras.layers.Layer):
     def build(self, input_shape):
         self.gamma = self.add_weight(
             name='gamma',
-            shape=input_shape[-1:],
+            shape=[1, 1, input_shape[-1]],
             initializer=keras.initializers.RandomNormal(1, 0.02),
             trainable=self.trainable)
 
         self.beta = self.add_weight(
             name='beta',
-            shape=input_shape[-1:],
+            shape=[1, 1, input_shape[-1]],
             initializer=keras.initializers.RandomNormal(0, 0.02),
             trainable=self.trainable)
 
@@ -29,11 +29,6 @@ class InstanceNormalization_(keras.layers.Layer):
         ins_mean, ins_sigma = tf.nn.moments(x, axes=[1, 2], keepdims=True)
         x_ins = (x - ins_mean) * (tf.math.rsqrt(ins_sigma + self.epsilon))
         return x_ins * self.gamma + self.beta
-
-try:
-    from tensorflow_addons.layers import InstanceNormalization
-except ImportError:
-    InstanceNormalization = InstanceNormalization_
 
 
 W_INIT = keras.initializers.RandomNormal(0, 0.02)
@@ -57,8 +52,6 @@ def dc_d(input_shape, name):
     # 16
     add_block(512)
     # 8
-    # add_block(512)
-    # 4
     model.add(Conv2D(1, 3, 1, "valid"))
     return model
 
@@ -113,19 +106,19 @@ def unet(input_shape=(128, 128, 3), name="unet"):
     train_encoder = True
     # attempt: encoder to extract image random encoding with some its distribution. trainable = False
     i_ = Conv2D(64, 7, 1, "same")(i)
-    e1 = en_block(i_, 128, 7, trainable=train_encoder)   # 64
+    e1 = en_block(i_, 64, 7, trainable=train_encoder)   # 64
     e2 = en_block(e1, 128, trainable=train_encoder)    # 32
 
     m = ResBlock(filters=128, bottlenecks=2)(e2)
-    for _ in range(3):
+    for _ in range(2):
         m = ResBlock(128, 2)(m)
 
-    d2 = de_block(m, e2, 128)
-    d1 = de_block(d2, e1, 128)
+    o = de_block(m, e2, 128)
+    o = de_block(o, e1, 64)
 
-    o = Conv2D(64, 7, 1, "same")(d1)
-    o = InstanceNormalization()(o)
-    o = LeakyReLU(0.2)(o)
+    # o = Conv2D(64, 7, 1, "same")(o)
+    # o = InstanceNormalization()(o)
+    # o = LeakyReLU(0.2)(o)
     # o = Conv2D(64, 5, 1, "same")(o)
     # o = InstanceNormalization()(o)
     # o = LeakyReLU(0.2)(o)

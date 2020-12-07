@@ -8,10 +8,11 @@ fake2_buffer = []
 
 class CycleGAN(keras.Model):
     def __init__(self, img_shape,
-                 lambda_=10, summary_writer=None, lr=0.0001, beta1=0.5, beta2=0.99, use_identity=False, ls_loss=True):
+                 cycle_lambda=10, summary_writer=None, lr=0.0001, beta1=0.5, beta2=0.99, gp_lambda=10, use_identity=False, ls_loss=True):
         super().__init__()
         self.img_shape = img_shape
-        self.lambda_ = lambda_
+        self.cycle_lambda = cycle_lambda
+        self.gp_lambda = gp_lambda
         self.use_identity = use_identity
         self.ls_loss = ls_loss
         self.g12 = self._get_generator("g12")       # man to woman
@@ -42,16 +43,45 @@ class CycleGAN(keras.Model):
         model.summary()
         return model
 
-    def train_d(self, real_fake1, real_fake2, label):
+    # gradient penalty
+    def gp(self, real_img, fake_img, d):
+        e = tf.random.uniform((len(real_img), 1, 1, 1), 0, 1)
+        noise_img = e * real_img + (1. - e) * fake_img  # extend distribution space
         with tf.GradientTape() as tape:
-            loss = self.d_loss_fun(label, self.d1(real_fake1)) + self.d_loss_fun(label, self.d2(real_fake2))
-        var = self.d1.trainable_variables + self.d2.trainable_variables
-        grads = tape.gradient(loss, var)
-        self.opt.apply_gradients(zip(grads, var))
+            tape.watch(noise_img)
+            o = d(noise_img)
+        g = tape.gradient(o, noise_img)  # image gradients
+        g_norm2 = tf.sqrt(tf.reduce_sum(tf.square(g), axis=[1, 2, 3]))  # norm2 penalty
+        gp = tf.square(g_norm2 - 1.)
+        return tf.reduce_mean(gp)
+
+    @staticmethod
+    def w_distance(real, fake):
+        # the distance of two data distributions
+        return tf.reduce_mean(real) - tf.reduce_mean(fake)
+
+    def train_d(self, real1, real2):
+        d_w_distance = 0
+        d_gp = 0
+        for real, real_, g, g_, d in zip(
+                [real1, real2], [real2, real1],
+                [self.g12, self.g21], [self.g21, self.g12], [self.d2, self.d1]
+        ):
+            with tf.GradientTape() as tape:
+                fake_style = g(real)
+                pred_fake, pred_real = d(fake_style), d(real_)
+                w_distance = -self.w_distance(pred_real, pred_fake)  # maximize W distance
+                gp = self.gp(real_, fake_style, d)
+                loss = w_distance + self.gp_lambda * gp
+            grads = tape.gradient(loss, d.trainable_variables)
+            self.opt.apply_gradients(zip(grads, d.trainable_variables))
+            d_gp += gp
+            d_w_distance += w_distance
 
         if self._train_step % 300 == 0 and self.summary_writer is not None:
             with self.summary_writer.as_default():
-                tf.summary.scalar("d/loss", loss, step=self._train_step)
+                tf.summary.scalar("d/w_distance", d_w_distance, step=self._train_step)
+                tf.summary.scalar("d/gp", d_gp, step=self._train_step)
         return loss
 
     def cycle(self, real, g, g_):
@@ -79,9 +109,9 @@ class CycleGAN(keras.Model):
                 # is fake_real real?
                 pred = d(fake_style)
                 d_loss = self.d_loss_fun(tf.ones_like(pred), pred)  # make style transfer more real
-                loss = d_loss + self.lambda_ * cyc_loss
+                loss = d_loss + self.cycle_lambda * cyc_loss
                 if self.use_identity:
-                    loss += self.lambda_ / 5 * self.identity(real, g)
+                    loss += self.cycle_lambda / 5 * self.identity(real, g)
             var = self.g12.trainable_variables + self.g21.trainable_variables
             grads = tape.gradient(loss, var)
             self.opt.apply_gradients(zip(grads, var))
@@ -93,38 +123,10 @@ class CycleGAN(keras.Model):
             with self.summary_writer.as_default():
                 tf.summary.scalar("g/cycle_loss", cyc_losses, step=self._train_step)
                 tf.summary.histogram("g/d_loss", d_losses, step=self._train_step)
-
-        half = len(real1) // 2
-        fake2 = fake_styles[0]
-        fake1 = fake_styles[1]
-        return d_losses, cyc_losses, fake2[:half], fake1[:half]
+        return d_losses, cyc_losses
 
     def step(self, real1, real2):
-        g_loss, cyc_loss, half_fake2, half_fake1 = self.train_g(real1, real2)
-
-        half = len(half_fake2)
-        if self.ls_loss:
-            d_label = tf.concat(
-                (tf.ones((half, *self.patch_shape), tf.float32),    # real
-                 -tf.ones((half, *self.patch_shape), tf.float32)), axis=0   # fake
-            )
-        else:
-            d_label = tf.concat(
-                (tf.ones((half, *self.patch_shape), tf.float32),
-                 tf.zeros((half, *self.patch_shape), tf.float32)), axis=0)
-
-        # reduce model oscillation
-        # fake1_buffer.append(half_fake1.numpy())
-        # fake2_buffer.append(half_fake2.numpy())
-        # idx = random.randint(0, len(fake1_buffer)-1)
-        # half_fake1, half_fake2 = tf.convert_to_tensor(fake1_buffer[idx]), tf.convert_to_tensor(fake2_buffer[idx])
-        # if len(fake1_buffer) > self.buffer_len:
-        #     fake1_buffer.pop(0)
-        # if len(fake2_buffer) > self.buffer_len:
-        #     fake2_buffer.pop(0)
-
-        real_fake1 = tf.concat((real1[:half], half_fake1), axis=0)
-        real_fake2 = tf.concat((real2[:half], half_fake2), axis=0)
-        d_loss = self.train_d(real_fake1, real_fake2, d_label)
+        g_loss, cyc_loss = self.train_g(real1, real2)
+        d_loss = self.train_d(real1, real2)
         self._train_step += 1
         return g_loss, d_loss, cyc_loss
