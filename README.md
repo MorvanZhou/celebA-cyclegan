@@ -9,8 +9,8 @@ cd celebA-cyclegan
 pip3 install -r requirements.txt
 ```
 
-Download CelebA Align&Cropped Images from [https://drive.google.com/open?id=0B7EVK8r0v71pWEZsZE9oNnFzTm8](https://drive.google.com/open?id=0B7EVK8r0v71pWEZsZE9oNnFzTm8),
-and Attributes Annotations from [https://drive.google.com/open?id=0B7EVK8r0v71pWEZsZE9oNnFzTm8](https://drive.google.com/open?id=0B7EVK8r0v71pWEZsZE9oNnFzTm8).
+Download CelebA img_align_celeba.zip (~1.4GB) from [https://drive.google.com/file/d/0B7EVK8r0v71pZjFTYXZWM3FlRnM/view?usp=sharing](https://drive.google.com/file/d/0B7EVK8r0v71pZjFTYXZWM3FlRnM/view?usp=sharing),
+and list_attr_celeba.txt (25MB) from [https://drive.google.com/file/d/0B7EVK8r0v71pblRyaVFSWGxPY0U/view?usp=sharing](https://drive.google.com/file/d/0B7EVK8r0v71pblRyaVFSWGxPY0U/view?usp=sharing).
 
 Parse data
 ```shell script
