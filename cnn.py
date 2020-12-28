@@ -4,34 +4,35 @@ from tensorflow.keras.layers import *
 
 
 class InstanceNormalization(keras.layers.Layer):
-    """Batch Instance Normalization Layer (https://arxiv.org/abs/1805.07925)."""
-
-    def __init__(self, trainable=None, epsilon=1e-5):
+    def __init__(self, axis=(1, 2), epsilon=1e-6):
         super().__init__()
+        # NHWC
+        self.axis = axis
         self.epsilon = epsilon
-        self.trainable = trainable
         self.gamma, self.beta = None, None
 
     def build(self, input_shape):
+        # NHWC
+        shape = [1, 1, 1, input_shape[-1]]
         self.gamma = self.add_weight(
             name='gamma',
-            shape=[1, 1, input_shape[-1]],
-            initializer=keras.initializers.RandomNormal(1, 0.02),
-            trainable=self.trainable)
+            shape=shape,
+            initializer=keras.initializers.RandomNormal(1, 0.02))
 
         self.beta = self.add_weight(
             name='beta',
-            shape=[1, 1, input_shape[-1]],
-            initializer=keras.initializers.RandomNormal(0, 0.02),
-            trainable=self.trainable)
+            shape=shape,
+            initializer=keras.initializers.RandomNormal(0, 0.02))
 
     def call(self, x, trainable=None):
-        ins_mean, ins_sigma = tf.nn.moments(x, axes=[1, 2], keepdims=True)
-        x_ins = (x - ins_mean) * (tf.math.rsqrt(ins_sigma + self.epsilon))
-        return x_ins * self.gamma + self.beta
+        mean = tf.math.reduce_mean(x, axis=self.axis, keepdims=True)
+        x -= mean
+        variance = tf.math.reduce_mean(tf.math.square(x), axis=self.axis, keepdims=True)
+        x *= tf.math.rsqrt(variance + self.epsilon)
+        return x * self.gamma + self.beta
 
 
-W_INIT = keras.initializers.RandomNormal(0, 0.02)
+W_INIT = keras.initializers.HeNormal()
 
 
 def dc_d(input_shape, name):
@@ -48,11 +49,12 @@ def dc_d(input_shape, name):
     # 64
     add_block(128)
     # 32
-    add_block(256)
+    add_block(128)
     # 16
-    add_block(512)
+    add_block(256)
     # 8
-    model.add(Conv2D(1, 3, 1, "valid"))
+    add_block(256)
+    # 4
     return model
 
 
@@ -72,57 +74,60 @@ class ResBlock(keras.layers.Layer):
 class ResBottleneck(keras.layers.Layer):
     def __init__(self, filters):
         super().__init__()
-        c = filters // 3
+        self.filters = filters
+        self.b = None
+        self.projection = None
+
+    def call(self, x, **kwargs):
+        o = self.b(x)
+        if self.projection is not None:
+            o += self.projection(x)
+        return o
+
+    def build(self, input_shape):
+        c = input_shape[-1]
+        if c != self.filters:
+            self.projection = Conv2D(self.filters, 1, 1)
         self.b = keras.Sequential([
             Conv2D(c, 3, 1, padding="same", kernel_initializer=W_INIT),
-            InstanceNormalization(),
             LeakyReLU(0.2),
-            Conv2D(filters, 3, 1, padding="same", kernel_initializer=W_INIT),
             InstanceNormalization(),
+            Conv2D(self.filters, 1, 1, kernel_initializer=W_INIT),
         ])
-
-    def call(self, x, training=None):
-        o = self.b(x, training=training) + x
-        o = tf.nn.relu(o)
-        return o
 
 
 def unet(input_shape=(128, 128, 3), name="unet"):
-    def en_block(inputs, filters, kernels=3, trainable=True):
-        _e = Conv2D(filters, kernels, 2, "same", trainable=trainable)(inputs)
-        _e = InstanceNormalization(trainable=trainable)(_e)
+    def en_block(inputs, filters, kernels=3):
+        _e = Conv2D(filters, kernels, 2, "same")(inputs)
         _e = LeakyReLU(0.2)(_e)
+        _e = InstanceNormalization()(_e)
         return _e
 
     def de_block(inputs, encoding, filters=64):
         _u = tf.concat((inputs, encoding), axis=3)
         _u = UpSampling2D((2, 2), interpolation="bilinear")(_u)
-        _u = Conv2D(filters, 3, 1, "same")(_u)
-        _u = InstanceNormalization()(_u)
+        _u = Conv2D(filters, 3, 1, "same", kernel_initializer=W_INIT)(_u)
         _u = LeakyReLU(0.2)(_u)
+        _u = InstanceNormalization()(_u)
         return _u
 
     i = keras.Input(shape=input_shape, dtype=tf.float32)
-    train_encoder = True
-    # attempt: encoder to extract image random encoding with some its distribution. trainable = False
-    i_ = Conv2D(64, 7, 1, "same")(i)
-    e1 = en_block(i_, 64, 7, trainable=train_encoder)   # 64
-    e2 = en_block(e1, 128, trainable=train_encoder)    # 32
+    i_ = GaussianNoise(0.02)(i)
+    i_ = Conv2D(64, 7, 1, "same", kernel_initializer=W_INIT)(i_)
+    e1 = en_block(i_, 64, 7)   # 64
+    e2 = en_block(e1, 128)    # 32
 
-    m = ResBlock(filters=128, bottlenecks=2)(e2)
+    m = ResBlock(filters=128, bottlenecks=1)(e2)
     for _ in range(2):
-        m = ResBlock(128, 2)(m)
+        m = ResBlock(128, 1)(m)
 
     o = de_block(m, e2, 128)
     o = de_block(o, e1, 64)
 
-    # o = Conv2D(64, 7, 1, "same")(o)
-    # o = InstanceNormalization()(o)
-    # o = LeakyReLU(0.2)(o)
-    # o = Conv2D(64, 5, 1, "same")(o)
-    # o = InstanceNormalization()(o)
-    # o = LeakyReLU(0.2)(o)
-    o = Conv2D(input_shape[-1], 7, 1, "same", activation=keras.activations.tanh)(o)
+    o = Conv2D(64, 7, 1, "same", kernel_initializer=W_INIT)(o)
+    o = LeakyReLU(0.2)(o)
+    o = InstanceNormalization()(o)
+    o = Conv2D(input_shape[-1], 7, 1, "same", activation=keras.activations.tanh, kernel_initializer=W_INIT)(o)
     unet = keras.Model(i, o, name=name)
     return unet
 

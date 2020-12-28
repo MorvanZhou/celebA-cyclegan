@@ -14,12 +14,17 @@ and list_attr_celeba.txt (25MB) from [https://drive.google.com/file/d/0B7EVK8r0v
 
 Parse data
 ```shell script
-python3 dataset.py --data_dir D:/data/celebA_img_align/
+python dataset.py --data_dir D:/data/celebA_img_align/
 ```
 
 Training
 ```shell script
-python3 train.py --data_dir D:/data/celebA_img_align/ -b 5 --epoch 101 --cycle_lambda 10 --gp_lambda 10 -lr 0.001 -b1 0.1 -b2 0.99
+python train.py --data_dir D:/data/celebA_img_align/ -b 5 --epoch 101 --cycle_lambda 5 --gp_lambda 10 -lr 0.0002 -b1 0.01 -b2 0.99
+```
+
+Test
+```shell script
+python restore.py --model_path visual\2020-12-17_16-06-29\model\cp-0020-00002000.ckpt -t f2m --image_path demo/female.jpg
 ```
 
 ![ep003t7500.png](/demo/ep003t7500.png)

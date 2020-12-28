@@ -33,8 +33,10 @@ class CycleGAN(keras.Model):
     def _get_discriminator(self, name):
         model = dc_d(self.img_shape, name=name)  # [n, 8, 8, 1]
         if not self.ls_loss:
-            model.add(keras.layers.Flatten())
+            model.add(keras.layers.GlobalAveragePooling2D())
             model.add(keras.layers.Dense(1))
+        else:
+            model.add(keras.layers.Conv2D(1, 2, 1, "valid"))
         model.summary()
         return model, model.layers[-1].output_shape[1:]
 
@@ -92,7 +94,6 @@ class CycleGAN(keras.Model):
 
     def identity(self, real, g):
         loss = self.loss_img(real, g(real))
-        # loss12 = self.loss_img(real1, self.g12(real1))
         return loss
 
     def train_g(self, real1, real2):
@@ -122,7 +123,7 @@ class CycleGAN(keras.Model):
         if self._train_step % 300 == 0 and self.summary_writer is not None:
             with self.summary_writer.as_default():
                 tf.summary.scalar("g/cycle_loss", cyc_losses, step=self._train_step)
-                tf.summary.histogram("g/d_loss", d_losses, step=self._train_step)
+                tf.summary.scalar("g/d_loss", d_losses, step=self._train_step)
         return d_losses, cyc_losses
 
     def step(self, real1, real2):
