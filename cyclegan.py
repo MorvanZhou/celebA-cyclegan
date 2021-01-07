@@ -8,7 +8,7 @@ fake2_buffer = []
 
 class CycleGAN(keras.Model):
     def __init__(self, img_shape,
-                 cycle_lambda=10, summary_writer=None, lr=0.0001, beta1=0.5, beta2=0.99, gp_lambda=10, use_identity=False, ls_loss=True):
+                 cycle_lambda=10, summary_writer=None, lr=0.0001, beta1=0.5, beta2=0.99, gp_lambda=10, use_identity=False, ls_loss=False):
         super().__init__()
         self.img_shape = img_shape
         self.cycle_lambda = cycle_lambda

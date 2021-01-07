@@ -11,10 +11,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--model_path", type=str)
 parser.add_argument("-t", "--transfer", help="f2m (female to male) or m2f (male to female)", default="m2f")
 parser.add_argument("--image_dir", default="demo/male", type=str)
+parser.add_argument("--lsgan", dest="lsgan", action="store_true", default=False)
 
 args = parser.parse_args(
-    # """--model_path visual/2020-12-21_15-54-47/model/cp-0003-00006000.ckpt -t m2f --image_dir demo/male""".split(" ")
-    """--model_path visual/2020-12-21_15-54-47/model/cp-0003-00006000.ckpt -t f2m --image_dir demo/female""".split(" ")
+    # """--model_path visual/2021-01-04_11-21-36/model/cp-0050-00002000.ckpt -t m2f --image_dir demo/male""".split(" ")
+    """--model_path visual/2021-01-04_11-21-36/model/cp-0050-00002000.ckpt -t f2m --image_dir demo/female""".split(" ")
 )
 
 
@@ -62,7 +63,7 @@ def generate(generator):
 
 
 if __name__ == "__main__":
-    gan = CycleGAN(img_shape=(128, 128, 3))
+    gan = CycleGAN(img_shape=(128, 128, 3), ls_loss=args.lsgan)
     gan.load_weights(args.model_path)
     if args.transfer == "m2f":
         generate(gan.g12)

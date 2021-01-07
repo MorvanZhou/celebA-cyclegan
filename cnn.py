@@ -53,7 +53,7 @@ def dc_d(input_shape, name):
     # 16
     add_block(256)
     # 8
-    add_block(256)
+    add_block(512)
     # 4
     return model
 
@@ -112,22 +112,21 @@ def unet(input_shape=(128, 128, 3), name="unet"):
         return _u
 
     i = keras.Input(shape=input_shape, dtype=tf.float32)
-    i_ = GaussianNoise(0.02)(i)
-    i_ = Conv2D(64, 7, 1, "same", kernel_initializer=W_INIT)(i_)
-    e1 = en_block(i_, 64, 7)   # 64
+    i_ = Conv2D(32, 5, 1, "same", kernel_initializer=W_INIT)(i)
+    e1 = en_block(i_, 64, 3)   # 64
     e2 = en_block(e1, 128)    # 32
 
-    m = ResBlock(filters=128, bottlenecks=1)(e2)
+    m = ResBlock(filters=128, bottlenecks=2)(e2)
     for _ in range(2):
-        m = ResBlock(128, 1)(m)
+        m = ResBlock(128, 2)(m)
 
     o = de_block(m, e2, 128)
     o = de_block(o, e1, 64)
 
-    o = Conv2D(64, 7, 1, "same", kernel_initializer=W_INIT)(o)
+    o = Conv2D(64, 3, 1, "same", kernel_initializer=W_INIT)(o)
     o = LeakyReLU(0.2)(o)
     o = InstanceNormalization()(o)
-    o = Conv2D(input_shape[-1], 7, 1, "same", activation=keras.activations.tanh, kernel_initializer=W_INIT)(o)
+    o = Conv2D(input_shape[-1], 5, 1, "same", activation=keras.activations.tanh, kernel_initializer=W_INIT)(o)
     unet = keras.Model(i, o, name=name)
     return unet
 

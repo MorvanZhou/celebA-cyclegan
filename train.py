@@ -25,7 +25,7 @@ parser.add_argument("--lsgan", dest="lsgan", action="store_true", default=False)
 parser.add_argument("--data_dir", dest="data_dir", default="./data")
 
 args = parser.parse_args(
-    # """--data_dir D:/data/celebA_img_align/ -b 5 --epoch 101 --cycle_lambda 5 --gp_lambda 10 -lr 0.0002 -b1 0. -b2 0.99""".split(" ")
+    # """--data_dir data -b 3 --epoch 101 --cycle_lambda 10 --gp_lambda 10 -lr 0.0002 -b1 0. -b2 0.99""".split(" ")
 )
 
 date_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -36,8 +36,8 @@ def train(gan, d):
     checkpoint_path = _dir + "/cp-{epoch:04d}-{step:08d}.ckpt"
     os.makedirs(_dir, exist_ok=True)
     t0 = time.time()
-    test_men = np.concatenate([next(iter(d.ds_men)) for _ in range(max(1, 15 // args.batch_size))], axis=0)
-    test_women = np.concatenate([next(iter(d.ds_women)) for _ in range(max(1, 15 // args.batch_size))], axis=0)
+    test_men = np.concatenate([next(iter(d.ds_men)) for _ in range(max(1, 15 // args.batch_size))], axis=0)[:10]
+    test_women = np.concatenate([next(iter(d.ds_women)) for _ in range(max(1, 15 // args.batch_size))], axis=0)[:10]
     for ep in range(args.epoch):
         for t, img_men in enumerate(d.ds_men):
             img_women = next(iter(d.ds_women))
@@ -51,7 +51,7 @@ def train(gan, d):
                 t0 = t1
             if t % 2000 == 0:
                 gan.save_weights(checkpoint_path.format(epoch=ep, step=t))
-    gan.save_weights(checkpoint_path.format(epoch=args.epoch))
+    gan.save_weights(checkpoint_path.format(epoch=args.epoch, step=0))
 
 
 def init_logger(date_str, m):

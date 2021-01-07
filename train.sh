@@ -1,1 +1,0 @@
-python3 train.py -b 10 --epoch 101 --lambda 10 -lr 0.0002 -b1 0.5 -b2 0.99 --lsgan --soft_gpu
