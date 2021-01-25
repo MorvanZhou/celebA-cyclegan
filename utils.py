@@ -24,9 +24,8 @@ def save_gan(model, img_name, img_women, img_men):
 
     convt = lambda x: (x + 1) / 2
     imgs = [convt(img_women), convt(img_men_), convt(img_men), convt(img_women_)]
-    plt.clf()
     nc, nr = len(img_women), 4
-    plt.figure(0, (nc*2, nr*2))
+    f = plt.figure(0, (nc*2, nr*2))
     for c in range(nc):
         for r in range(nr):
             i = r * nc + c
@@ -38,6 +37,8 @@ def save_gan(model, img_name, img_women, img_men):
     path = "visual/{}.png".format(img_name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     plt.savefig(path)
+    f.clear()
+    plt.close(f)
 
 
 def get_logger(date_str):
